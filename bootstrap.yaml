@@ -1,0 +1,23 @@
+BoxFeature: 7
+ScoreThreshold: 0.1
+NmsOverlapThreshold: 0.2
+UseOnnx: false
+
+PfeOnnx: /home/ros/PointPillars_MultiHead_40FPS_ROS/model/cbgs_pp_multihead_pfe.onnx
+BackboneOnnx: /home/ros/PointPillars_MultiHead_40FPS_ROS/model/cbgs_pp_multihead_backbone.onnx
+
+PfeTrt: /home/ros/PointPillars_MultiHead_40FPS_ROS/model/cbgs_pp_multihead_pfe.trt
+BackboneTrt: /home/ros/PointPillars_MultiHead_40FPS_ROS/model/cbgs_pp_multihead_backbone.trt
+
+ModelConfig: /home/ros/PointPillars_MultiHead_40FPS_ROS/pointpillars/cfgs/cbgs_pp_multihead.yaml
+
+# 可以不需要InputFile，仅在测试时有作用
+InputFile: /home/ros/PointPillars_MultiHead_40FPS_ROS/test/testdata/1.txt
+# 结果保存地址
+Save: true
+OutputFile: /home/ros/PointPillars_MultiHead_40FPS_ROS/test/testdata/demo_boxes.txt
+
+LidarTopic: /rslidar_points_0
+FrameId: rslidar_1
+BoundingBoxTopic: boundingbox_objects
+ObjectScoreThreshold: 0.3
