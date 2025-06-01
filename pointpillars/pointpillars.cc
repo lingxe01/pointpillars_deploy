@@ -46,20 +46,23 @@
 
 #include <chrono>
 #include <iostream>
-#include <iostream>
+
 
 void PointPillars::InitParams()
 {
     YAML::Node params = YAML::LoadFile(pp_config_);
+    // 读取体素尺寸
     kPillarXSize = params["DATA_CONFIG"]["DATA_PROCESSOR"][2]["VOXEL_SIZE"][0].as<float>();
     kPillarYSize = params["DATA_CONFIG"]["DATA_PROCESSOR"][2]["VOXEL_SIZE"][1].as<float>();
     kPillarZSize = params["DATA_CONFIG"]["DATA_PROCESSOR"][2]["VOXEL_SIZE"][2].as<float>();
+    // 读取点云范围
     kMinXRange = params["DATA_CONFIG"]["POINT_CLOUD_RANGE"][0].as<float>();
     kMinYRange = params["DATA_CONFIG"]["POINT_CLOUD_RANGE"][1].as<float>();
     kMinZRange = params["DATA_CONFIG"]["POINT_CLOUD_RANGE"][2].as<float>();
     kMaxXRange = params["DATA_CONFIG"]["POINT_CLOUD_RANGE"][3].as<float>();
     kMaxYRange = params["DATA_CONFIG"]["POINT_CLOUD_RANGE"][4].as<float>();
     kMaxZRange = params["DATA_CONFIG"]["POINT_CLOUD_RANGE"][5].as<float>();
+    // 读取类别数、最大体素数
     kNumClass = params["CLASS_NAMES"].size();
     kMaxNumPillars = params["DATA_CONFIG"]["DATA_PROCESSOR"][2]["MAX_NUMBER_OF_VOXELS"]["test"].as<int>(); // 30000
     kMaxNumPointsPerPillar = params["DATA_CONFIG"]["DATA_PROCESSOR"][2]["MAX_POINTS_PER_VOXEL"].as<int>(); // 20
@@ -70,11 +73,13 @@ void PointPillars::InitParams()
     kNumIndsForScan = 1024;
     kNumThreads = 64;
     kNumBoxCorners = 8;
+    // 表示每隔4个单元格放置一个锚框
     kAnchorStrides = 4;
     kNmsPreMaxsize = params["MODEL"]["POST_PROCESSING"]["NMS_CONFIG"]["NMS_PRE_MAXSIZE"].as<int>();
     kNmsPostMaxsize = params["MODEL"]["POST_PROCESSING"]["NMS_CONFIG"]["NMS_POST_MAXSIZE"].as<int>();
     //params for initialize anchors
     //Adapt to OpenPCDet
+    // 读取锚框尺寸和底部高度（适应 OpenPCDet）
     kAnchorNames = params["CLASS_NAMES"].as<std::vector<std::string>>();
     for (int i = 0; i < kAnchorNames.size(); ++i)
     {
@@ -93,21 +98,21 @@ void PointPillars::InitParams()
         }
         kMultiheadLabelMapping.emplace_back(value);
     }
-
+    // 计算网格尺寸和锚框数量
     // Generate secondary parameters based on above.
     kGridXSize = static_cast<int>((kMaxXRange - kMinXRange) / kPillarXSize); //512
     kGridYSize = static_cast<int>((kMaxYRange - kMinYRange) / kPillarYSize); //512
     kGridZSize = static_cast<int>((kMaxZRange - kMinZRange) / kPillarZSize); //1
-    kRpnInputSize = 64 * kGridYSize * kGridXSize;
+    kRpnInputSize = 64 * kGridYSize * kGridXSize;  //64是特征维度
 
     kNumAnchorXinds = static_cast<int>(kGridXSize / kAnchorStrides); //Width
     kNumAnchorYinds = static_cast<int>(kGridYSize / kAnchorStrides); //Hight
     kNumAnchor = kNumAnchorXinds * kNumAnchorYinds * 2 * kNumClass;  // H * W * Ro * N = 196608
 
     kNumAnchorPerCls = kNumAnchorXinds * kNumAnchorYinds * 2; //H * W * Ro = 32768
-    kRpnBoxOutputSize = kNumAnchor * kNumOutputBoxFeature;
-    kRpnClsOutputSize = kNumAnchor * kNumClass;
-    kRpnDirOutputSize = kNumAnchor * 2;
+    kRpnBoxOutputSize = kNumAnchor * kNumOutputBoxFeature; //边界框输出尺寸
+    kRpnClsOutputSize = kNumAnchor * kNumClass; //类别分数输出尺寸
+    kRpnDirOutputSize = kNumAnchor * 2; //方向分类输出尺寸
 }
 
 
@@ -125,9 +130,10 @@ PointPillars::PointPillars(const float score_threshold,
       pp_config_(pp_config)
 {
     InitParams();
-    InitTRT(use_onnx_);
-    DeviceMemoryMalloc();
-
+    InitTRT(use_onnx_);   // 初始化 TensorRT 引擎
+    DeviceMemoryMalloc(); // 分配GPU内存
+    
+    // 实例化 CUDA 处理模块
     preprocess_points_cuda_ptr_.reset(new PreprocessPointsCuda(
         kNumThreads,
         kMaxNumPillars,
@@ -157,7 +163,7 @@ PointPillars::PointPillars(const float score_threshold,
     
 }
 
-
+// GPU内存分配与释放
 void PointPillars::DeviceMemoryMalloc() {
     // for pillars 
     GPU_CHECK(cudaMalloc(reinterpret_cast<void**>(&dev_num_points_per_pillar_), kMaxNumPillars * sizeof(float))); // M
@@ -241,7 +247,7 @@ PointPillars::~PointPillars() {
 }
 
 
-
+// 清空GPU内存
 void PointPillars::SetDeviceMemoryToZero() {
 
     GPU_CHECK(cudaMemset(dev_num_points_per_pillar_, 0, kMaxNumPillars * sizeof(float)));
@@ -362,18 +368,31 @@ void PointPillars::EngineToTRTModel(
     *engine_ptr = engine;
 
 }
-
+// 推理主流程
 void PointPillars::DoInference(const float* in_points_array,
                                 const int in_num_points,
                                 std::vector<float>* out_detections,
                                 std::vector<int>* out_labels,
                                 std::vector<float>* out_scores) 
+/*
+输入点云（CPU） ──(拷贝)──> dev_points（GPU）
+       │
+       └──(预处理: 体素化)──> dev_x_coors_/dev_pillar_point_feature_ 等（GPU）
+       │
+       └──(PFE 推理)──────> pfe_buffers_[1]（64维特征，GPU）
+       │
+       └──(特征散射)──────> dev_scattered_feature_（二维特征图，GPU）
+       │
+       └──(主干网络推理)──> rpn_buffers_[1]/[7]（检测原始结果，GPU）
+       │
+       └──(后处理: NMS)───> out_detections/out_labels/out_scores（CPU）
+*/
 {
     // if(in_points_array == nullptr) return;
     SetDeviceMemoryToZero();
     cudaDeviceSynchronize();
-    // [STEP 1] : load pointcloud
-    float* dev_points = nullptr;
+    // [STEP 1] : 加载点云到GPU
+    float* dev_points = nullptr; // GPU内存
     GPU_CHECK(cudaMalloc(reinterpret_cast<void**>(&dev_points),
                         in_num_points * kNumPointFeature * sizeof(float))); // [in_num_points , 5]
     GPU_CHECK(cudaMemset(dev_points, 0, in_num_points * kNumPointFeature * sizeof(float)));
@@ -386,15 +405,31 @@ void PointPillars::DoInference(const float* in_points_array,
     }
     
     // [STEP 2] : preprocess
-    host_pillar_count_[0] = 0;
+    host_pillar_count_[0] = 0; // 初始化有效体素计数为0（CPU端）
+
+    // 记录预处理开始时间（用于性能统计）
     auto preprocess_start = std::chrono::high_resolution_clock::now();
+
+    // 调用CUDA预处理模块，执行体素化
     preprocess_points_cuda_ptr_->DoPreprocessPointsCuda(
-          dev_points, in_num_points, dev_x_coors_, dev_y_coors_,
-          dev_num_points_per_pillar_, dev_pillar_point_feature_, dev_pillar_coors_,
-          dev_sparse_pillar_map_, host_pillar_count_ ,
-          dev_pfe_gather_feature_ );
+        dev_points,              // 输入：GPU上的点云数据（x,y,z,i,0）
+        in_num_points,           // 输入：点云总数
+        dev_x_coors_,            // 输出：体素X坐标（网格索引）
+        dev_y_coors_,            // 输出：体素Y坐标（网格索引）
+        dev_num_points_per_pillar_, // 输出：每个体素内的点数
+        dev_pillar_point_feature_, // 输出：体素内的点特征矩阵
+        dev_pillar_coors_,       // 输出：体素坐标范围（x_min, y_min, x_max, y_max）
+        dev_sparse_pillar_map_,  // 输出：稀疏体素映射表（网格索引→体素索引）
+        host_pillar_count_,      // 输出：有效体素总数（CPU→GPU同步）
+        dev_pfe_gather_feature_  // 输出：收集后的体素点特征（供PFE输入）
+    );
+    // 等待CUDA核函数执行完成（同步GPU与CPU）
     cudaDeviceSynchronize();
+
+    // 释放临时分配的GPU点云内存（预处理完成后不再需要原始点云）
     GPU_CHECK(cudaFree(dev_points));
+
+    // 记录预处理结束时间
     auto preprocess_end = std::chrono::high_resolution_clock::now();
     // DEVICE_SAVE<float>(dev_pfe_gather_feature_,  kMaxNumPillars * kMaxNumPointsPerPillar * kNumGatherPointFeature  , "0_Model_pfe_input_gather_feature");
 

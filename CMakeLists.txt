@@ -5,6 +5,7 @@ cmake_policy(SET CMP0042 NEW)
 project(pointpillars) 
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DCMAKE_C_COMPILER=/usr/bin/gcc-6 -DCMAKE_CXX_COMPILER=/usr/bin/g++-6 ")
+set(CMAKE_BUILD_TYPE Debug)
 option(BUILD_SHARED_LIBS "Build as a shared library"  ON)
 option(USE_DOUBLE        "Use double as kernel_type" OFF)
 option(TEST              "BUILD TEST"                OFF)

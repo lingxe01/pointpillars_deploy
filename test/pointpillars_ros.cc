@@ -265,7 +265,8 @@ int main(int argc, char *argv[])
     ros::NodeHandle nh;
 
     // 加载配置
-    const std::string DB_CONF = "../bootstrap.yaml";
+    // const std::string DB_CONF = "../bootstrap.yaml";
+    const std::string DB_CONF = "/home/ros/PointPillars_MultiHead_40FPS_ROS/bootstrap.yaml";
     YAML::Node config = YAML::LoadFile(DB_CONF);
 
     std::string pfe_file, backbone_file;
