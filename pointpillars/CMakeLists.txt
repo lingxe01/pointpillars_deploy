@@ -1,47 +1,52 @@
+# pointpillars/CMakeLists.txt
+cmake_minimum_required(VERSION 3.16)
+
+# 设置输出目录
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DCMAKE_C_COMPILER=/usr/bin/gcc-6 -DCMAKE_CXX_COMPILER=/usr/bin/g++-6")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DELPP_NO_DEFAULT_LOG_FILE")
 
-#file(GLOB_RECURSE SRC *)
-file(GLOB SRC *.cc *.cu)
-cuda_add_library(${PROJECT_LIB_NAME} ${SRC} OPTIONS -DYAML_BUILD_SHARED_LIBS=ON ) #OPTIONS -shared -fPIC
-# CUDA_ADD_EXECUTABLE(${PROJECT_LIB_NAME} )
-target_link_libraries(${PROJECT_LIB_NAME} ${LINK_LIBRARY} OpenMP::OpenMP_CXX)
+# 设置C++标准和编译选项
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Export the package for use from the build tree
-# export(TARGETS ${PROJECT_NAME} NAMESPACE XComp:: FILE cmake/${PROJECT_NAME}Targets.cmake)
-# export(PACKAGE ${PROJECT_NAME})
+# 添加编译定义
+add_definitions(-DYAML_BUILD_SHARED_LIBS=ON)
 
-# include(CMakePackageConfigHelpers)
-# write_basic_package_version_file(
-#     cmake/${PROJECT_NAME}ConfigVersion.cmake
-#     VERSION ${PROJECT_VERSION}
-#     COMPATIBILITY AnyNewerVersion)
+# 收集源文件
+file(GLOB_RECURSE SRC_FILES 
+    *.cc 
+    *.cu
+)
 
-# configure_package_config_file(
-#     ${CMAKE_SOURCE_DIR}/cmake/${PROJECT_NAME}Config.cmake.in
-#     ${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}Config.cmake
-#     INSTALL_DESTINATION lib/cmake/)
+# 添加库
+add_library(pointpillars SHARED ${SRC_FILES})
 
-# install(TARGETS ${PROJECT_NAME}-train ${PROJECT_NAME}-predict
-#     RUNTIME DESTINATION bin
-#     BUNDLE DESTINATION bin)
+# 设置CUDA编译选项
+set_target_properties(pointpillars PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    POSITION_INDEPENDENT_CODE ON
+)
 
-# install(TARGETS ${PROJECT_NAME}
-#     EXPORT ${PROJECT_NAME}Targets
-#     ARCHIVE DESTINATION lib
-#     LIBRARY DESTINATION lib
-#     RUNTIME DESTINATION bin
-#     INCLUDES DESTINATION include)
-# install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/thundersvm DESTINATION include/)
-# install(FILES ${CMAKE_BINARY_DIR}/thundersvm/config.h DESTINATION include/thundersvm/)
+# 添加包含目录
+target_include_directories(pointpillars PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CUDA_INCLUDE_DIRS}
+    ${TENSORRT_ROOT}/include
+    ${PCL_INCLUDE_DIRS}
+    ${YAML_CPP_INCLUDE_DIRS}
+)
 
-# install(FILES
-#     ${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}Config.cmake
-#     ${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}ConfigVersion.cmake
-#     DESTINATION lib/cmake/)
-
-# install(EXPORT ${PROJECT_NAME}Targets
-#     NAMESPACE XComp:: DESTINATION lib/cmake/)
+# 链接库
+target_link_libraries(pointpillars
+    ${CUDA_LIBRARIES}
+    ${CUDA_CUBLAS_LIBRARIES}
+    ${CUDA_curand_LIBRARY}
+    ${CUDA_cusparse_LIBRARY}
+    ${NVINFER}
+    ${NVONNXPARSERS}
+    ${PCL_LIBRARIES}
+    ${YAML_CPP_LIBRARIES}
+    OpenMP::OpenMP_CXX
+)

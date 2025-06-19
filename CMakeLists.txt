@@ -1,126 +1,126 @@
 cmake_minimum_required(VERSION 3.16)
+project(pointpillars_ros2 VERSION 0.0.1 LANGUAGES C CXX)
 
-cmake_policy(SET CMP0048 NEW)
-cmake_policy(SET CMP0042 NEW)
-project(pointpillars) 
+# 设置C++标准
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DCMAKE_C_COMPILER=/usr/bin/gcc-6 -DCMAKE_CXX_COMPILER=/usr/bin/g++-6 ")
-set(CMAKE_BUILD_TYPE Debug)
-option(BUILD_SHARED_LIBS "Build as a shared library"  ON)
-option(USE_DOUBLE        "Use double as kernel_type" OFF)
-option(TEST              "BUILD TEST"                OFF)
-option(BENCH             "BUILD BENCH"               OFF)
-
-if(USE_DOUBLE)
-    message("Use double as kernel_type")
+# 设置编译选项
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
 endif()
-if (NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Debug)
-endif ()
+message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 
-############################################################
-# add 3th_part library
-############################################################
-
-find_package(yaml-cpp REQUIRED)
-include_directories(${YAML_CPP_INCLUDE_DIRS})
-
-find_package(Threads)
-find_package(OpenMP REQUIRED)
-add_definitions("-DELPP_NO_LOG_TO_FILE")
-
+# 设置CUDA编译选项
 find_package(CUDA REQUIRED QUIET)
-include_directories(${CUDA_INCLUDE_DIRS})
 if (CUDA_VERSION VERSION_LESS "11.8")
-  set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -std=c++11 -Wno-deprecated-gpu-targets)
+    set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -std=c++11 -Wno-deprecated-gpu-targets)
 else ()
-  set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -std=c++14 -Wno-deprecated-gpu-targets)
+    set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -std=c++14 -Wno-deprecated-gpu-targets)
 endif ()
 
-set(CMAKE_PREFIX_PATH "/home/ros/TensorRT-8.6.1.6")
-find_library(NVINFER NAMES nvinfer) # 查找so动态库文件
+# 设置TensorRT路径和库
+set(TENSORRT_ROOT "/home/ros/TensorRT-8.6.1.6")
+include_directories(${TENSORRT_ROOT}/include)
+link_directories(${TENSORRT_ROOT}/lib)
+
+# 查找依赖库
+find_library(NVINFER NAMES nvinfer)
 find_library(NVPARSERS NAMES nvparsers)
 find_library(NVONNXPARSERS NAMES nvonnxparser)
-message(NVINFER "NVINFER path is ${NVINFER}")
-message(NVPARSERS "NVPARSERS path is ${NVPARSERS}")
-message(NVONNXPARSERS "nvonnxparser path is ${NVONNXPARSERS}")
+message(STATUS "NVINFER path: ${NVINFER}")
+message(STATUS "NVPARSERS path: ${NVPARSERS}")
+message(STATUS "NVONNXPARSERS path: ${NVONNXPARSERS}")
 
-include_directories("/home/ros/TensorRT-8.6.1.6/include")
-#link_directories(${TENSORRT_ROOT}/lib)
-set(roscpp_DIR "/opt/ros/noetic/share/roscpp/cmake/")
-set(std_msgs_DIR "/opt/ros/noetic/share/std_msgs/cmake/")
-# ROS
-set(CMAKE_PREFIX_PATH "/opt/ros/noetic")
-find_package(catkin REQUIRED COMPONENTS
-  std_msgs
-  rosbag             # use rosbag::Bag
-  sensor_msgs
-  std_msgs
-  message_filters
-  geometry_msgs
-  nav_msgs
-  visualization_msgs
+# 查找ROS 2依赖
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(jsk_recognition_msgs REQUIRED)
+find_package(pcl_conversions REQUIRED)
+find_package(PCL 1.8 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(yaml-cpp REQUIRED)
+find_package(OpenMP REQUIRED)
+
+# 添加项目包含目录
+include_directories(
+    include
+    ${PCL_INCLUDE_DIRS}
+    ${YAML_CPP_INCLUDE_DIRS}
+    ${TENSORRT_ROOT}/include
 )
 
-include_directories(${catkin_INCLUDE_DIRS})
-find_package(roscpp REQUIRED)
-include_directories(${roscpp_INCLUDE_DIRS})
-find_package(PCL 1.8 REQUIRED)
-include_directories(${PCL_INCLUDE_DIRS})
+# 定义链接库
+set(POINTPILLARS_LIBRARIES
+    ${CUDA_LIBRARIES}
+    ${CUDA_CUBLAS_LIBRARIES}
+    ${CUDA_curand_LIBRARY}
+    ${CUDA_cusparse_LIBRARY}
+    ${NVINFER}
+    ${NVONNXPARSERS}
+    ${PCL_LIBRARIES}
+    ${YAML_CPP_LIBRARIES}
+    OpenMP::OpenMP_CXX
+    rclcpp::rclcpp
+    ${sensor_msgs_TARGETS}
+    ${jsk_recognition_msgs_TARGETS}
+    ${pcl_conversions_TARGETS}
+    ${tf2_ros_TARGETS}
+    ${tf2_geometry_msgs_TARGETS}
+)
 
-list(APPEND LINK_LIBRARY
-            ${CUDA_cusparse_LIBRARY}
-            ${NVINFER}
-            ${NVONNXPARSERS}
-            ${CUDA_LIBRARIES}
-            ${CUDA_CUBLAS_LIBRARIES}
-            ${CUDA_curand_LIBRARY}            
-            ${CUDA_cusparse_LIBRARY}
-            ${PCL_LIBRARIES}
-            ${catkin_LIBRARIES}
-            yaml-cpp
-            )
+# 添加子目录
+add_subdirectory(pointpillars)
 
-# Correct error for GCC 5 and CUDA 7.5
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DYAML_BUILD_SHARED_LIBS=ON -D_MWAITXINTRIN_H_INCLUDED -D_FORCE_INLINES ")
-if (CMAKE_VERSION VERSION_LESS "3.1")
-    add_compile_options("-std=c++11 -fext-numeric-literals")
-else ()
-    set(CMAKE_CXX_STANDARD 11)
-endif ()
+# 添加可执行文件
+add_executable(pointpillars_ros2
+    src/pointpillars_humble.cc
+)
 
-set(COMMON_INCLUDES ${CMAKE_CURRENT_BINARY_DIR})
+# 链接库
+target_link_libraries(pointpillars_ros2
+    ${POINTPILLARS_LIBRARIES}
+    pointpillars  # 链接pointpillars子目录生成的库
+)
 
-############################################################
-# Create a library in subdirectory
-############################################################
-set(PROJECT_LIB_NAME ${PROJECT_NAME})
-include_directories(${COMMON_INCLUDES})
-add_subdirectory(${PROJECT_SOURCE_DIR}/pointpillars)
+# 安装规则
+install(TARGETS
+    pointpillars_ros2
+    DESTINATION lib/${PROJECT_NAME}
+)
 
+# 安装配置文件
+install(FILES
+    bootstrap.yaml
+    kitti_cbgs_pp_multihead.yaml
+    DESTINATION share/${PROJECT_NAME}
+)
 
-############################################################
-# Create an executable
-############################################################
-# if (TEST)
-#     message("Building tests")
-#     enable_testing()
-#     add_subdirectory(test)
-# endif ()
+# 安装模型文件
+install(DIRECTORY
+    model/
+    DESTINATION share/${PROJECT_NAME}/model
+)
 
-# message(STATUS "")
-# message(STATUS "BUILD SUMMARY")
-# message(STATUS "  CMAKE_GENERATOR      : ${CMAKE_GENERATOR}")
-# message(STATUS "  Compiler ID          : ${CMAKE_CXX_COMPILER_ID}")
-# message(STATUS "  Build type           : ${CMAKE_BUILD_TYPE}")
-# message(STATUS "  Build shared libs    : ${BUILD_SHARED_LIBS}")
-# message(STATUS "  Use double for kernel: ${USE_DOUBLE}")
-# message(STATUS "  Build tests          : ${TEST}")
-# message(STATUS "")
+# 安装rviz配置
+install(DIRECTORY
+    rviz/
+    DESTINATION share/${PROJECT_NAME}/rviz
+)
 
+# 安装工具和文档
+install(DIRECTORY
+    tools/
+    DESTINATION share/${PROJECT_NAME}/tools
+)
 
-add_executable(pointpillars_test test/pointpillars_test.cc) 
-target_link_libraries(pointpillars_test ${LINK_LIBRARY} ${PROJECT_LIB_NAME}) 
+install(DIRECTORY
+    docs/
+    DESTINATION share/${PROJECT_NAME}/docs
+)
 
-add_executable(pointpillars_ros test/pointpillars_ros.cc) 
-target_link_libraries(pointpillars_ros ${LINK_LIBRARY} ${PROJECT_LIB_NAME}) 
+# 注册ament包
+ament_package()
