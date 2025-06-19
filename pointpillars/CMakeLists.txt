@@ -1,52 +1,42 @@
-# pointpillars/CMakeLists.txt
 cmake_minimum_required(VERSION 3.16)
 
-# 设置输出目录
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-
-# 设置C++标准和编译选项
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
-# 添加编译定义
-add_definitions(-DYAML_BUILD_SHARED_LIBS=ON)
-
-# 收集源文件
-file(GLOB_RECURSE SRC_FILES 
-    *.cc 
-    *.cu
+# 收集所有源文件
+file(GLOB_RECURSE POINTPILLARS_SRC
+  "*.cc"
+  "*.cu"
 )
 
-# 添加库
-add_library(pointpillars SHARED ${SRC_FILES})
+# 构建静态库（推荐静态链接）
+add_library(pointpillars STATIC ${POINTPILLARS_SRC})
 
-# 设置CUDA编译选项
-set_target_properties(pointpillars PROPERTIES
-    CUDA_SEPARABLE_COMPILATION ON
-    POSITION_INDEPENDENT_CODE ON
-)
-
-# 添加包含目录
+# 包含头文件
 target_include_directories(pointpillars PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CUDA_INCLUDE_DIRS}
-    ${TENSORRT_ROOT}/include
-    ${PCL_INCLUDE_DIRS}
-    ${YAML_CPP_INCLUDE_DIRS}
+  ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# 链接库
+# CUDA 设置
+find_package(CUDA REQUIRED)
+if (CUDA_VERSION VERSION_LESS "11.8")
+  set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -std=c++11 -Wno-deprecated-gpu-targets)
+else ()
+  set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -std=c++14 -Wno-deprecated-gpu-targets)
+endif ()
+
+# TensorRT 链接库
+find_library(NVINFER NAMES nvinfer)
+find_library(NVPARSERS NAMES nvparsers)
+find_library(NVONNXPARSERS NAMES nvonnxparser)
+
+# 添加库依赖
 target_link_libraries(pointpillars
-    ${CUDA_LIBRARIES}
-    ${CUDA_CUBLAS_LIBRARIES}
-    ${CUDA_curand_LIBRARY}
-    ${CUDA_cusparse_LIBRARY}
-    ${NVINFER}
-    ${NVONNXPARSERS}
-    ${PCL_LIBRARIES}
-    ${YAML_CPP_LIBRARIES}
-    OpenMP::OpenMP_CXX
+  ${CUDA_LIBRARIES}
+  ${CUDA_CUBLAS_LIBRARIES}
+  ${NVINFER}
+  ${NVONNXPARSERS}
+  yaml-cpp
 )
+
+# 编译选项
+target_compile_features(pointpillars PUBLIC cxx_std_17)
+
+# 可选：如果 CUDA 编译有问题，可替代使用 enable_language(CUDA)
